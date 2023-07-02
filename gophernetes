@@ -299,8 +299,11 @@ case "${COMMAND}" in
     exec)
         exec_container $1 $2
     ;;
-    stop)
-        stop_container $1
+    pause)
+        pause_container $1
+    ;;
+    resume)
+        resume_container $1
     ;;
     rm)
         remove_container $1
