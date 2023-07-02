@@ -1,0 +1,343 @@
+#!/bin/bash
+
+# Name of the script
+SCRIPT_NAME="gophernetes"
+
+# containerd socket path
+CONTAINERD_PATH="/run/containerd/containerd.sock"
+
+NAMESPACE="my-namespace"
+# Function to display usage information
+function show_help() {
+  echo "Usage: $0 COMMAND"
+  echo ""
+  echo "Commands:"
+  echo "  run <source> <image> <name>     Pull an image from a source and run a container with the given name."
+  echo "                                 Available sources are 'docker' and 'local'."
+  echo "  stop <name>                    Stop a running container."
+  echo "  rm <name>                      Remove a container."
+  echo "  logs <name>                    Fetch and tail logs of a container."
+  echo "  exec <name>                    connect into a container."
+  echo "  pull <source> <image>          Pull an image from a source."
+  echo "  list <filter>                  List all containers."
+  echo "  network create <name>          Create a network."
+  echo "  network delete <name>          Delete a network."
+  echo "  attach <name> <network>        Attach a container to a network."
+  echo "  help                           Show help menu."
+  echo ""
+  echo "Examples:"
+  echo "  $0 run docker alpine alpine-container"
+  echo "  $0 run local my_image.tar my-container"
+  echo "  $0 stop my-container"
+  echo "  $0 rm my-container"
+  echo "  $0 logs my-container"
+  echo "  $0 pull docker alpine"
+  echo "  $0 list"
+  echo "  $0 network create my-network"
+  echo "  $0 network delete my-network"
+  echo "  $0 attach my-container my-network"
+  echo "  $0 help"
+}
+
+# Function to list containers
+function list_containers() {
+  local filter=$1
+  local show_all=false
+  local show_images=false
+
+  # Check if the --all option is provided
+  if [[ $filter == "--all" ]]; then
+    show_all=true
+  fi
+
+  # Check if the --images option is provided
+  if [[ $filter == "--images" ]]; then
+    show_images=true
+  fi
+
+  echo "Listing containers..."
+
+  if [[ $show_all == true ]]; then
+    echo "All containers:"
+    ctr -a ${CONTAINERD_PATH} containers list -q | while read -r id; do
+      echo "Container ID: ${id}"
+      ctr -a ${CONTAINERD_PATH} containers info ${id} | jq -r '.ID, "Command: " + .Spec.process.args[0], "Status: " + .Status, "Created At: " + .CreatedAt, "Updated At: " + .UpdatedAt, "PIDs: " + (.Spec.process.user.additionalGids | map(tostring) | join(", ")), "Ports: " + (.Spec.mounts[]?.options[]? | select(startswith("host=")) | split("=")[1]) // "N/A"'
+      echo "---------"
+    done || return 1
+  elif [[ $show_images == true ]]; then
+    echo "Image containers:"
+    ctr -a ${CONTAINERD_PATH} images list -q -f 'label=com.docker.compose.project.type=image' | while read -r ref; do
+      echo "Image Ref: ${ref}"
+      ctr -a ${CONTAINERD_PATH} images list --format '{{json .}}' "${ref}" | jq -r '.REF, "Type: \(.TYPE)", "Digest: \(.DIGEST)", "Size: \(.SIZE)", "Platforms: \(.PLATFORMS)", "Labels: \(.LABELS)"'
+      echo "---------"
+    done || return 1
+  else
+    echo "Running containers:"
+    ctr -a ${CONTAINERD_PATH} containers list -q | while read -r id; do
+      echo "Container ID: ${id}"
+      ctr -a ${CONTAINERD_PATH} containers info ${id} | jq -r '.ID, "Command: " + .Spec.process.args[0], "Status: " + .Status, "Created At: " + .CreatedAt, "Updated At: " + .UpdatedAt, "PIDs: " + (.Spec.process.user.additionalGids | map(tostring) | join(", ")), "Ports: " + (.Spec.mounts[]?.options[]? | select(startswith("host=")) | split("=")[1]) // "N/A"'
+      echo "---------"
+    done || return 1
+  fi
+}
+
+
+
+# Function to run a container
+function run_container() {
+  local source=$1
+  local image=$2
+  local name=$3
+  local detach=false
+  local exec=false
+  local command=""
+
+  # Check if the -d option is provided
+  if [[ $4 == "-d" ]]; then
+    detach=true
+  fi
+
+  # Check if the -exec option is provided
+  if [[ $4 == "-exec" ]]; then
+    exec=true
+  fi
+
+  # Check if both -d and -exec options are provided
+  if [[ $4 == "-d" && $5 == "-exec" ]]; then
+    exec=true
+  fi
+
+  # Check if the --cmd option is provided
+  if [[ $4 == "--cmd" ]]; then
+    command=$5
+  fi
+
+  # Check if both -d and --cmd options are provided
+  if [[ $4 == "-d" && $5 == "--cmd" ]]; then
+    command=$6
+  fi
+
+  # Check if both -exec and --cmd options are provided
+  if [[ $4 == "-exec" && $5 == "--cmd" ]]; then
+    command=$6
+  fi
+
+  # Check if all three options -d, -exec, and --cmd are provided
+  if [[ $4 == "-d" && $5 == "-exec" && $6 == "--cmd" ]]; then
+    command=$7
+  fi
+
+  # Check if the image exists
+  if ctr -a ${CONTAINERD_PATH} image ls | grep -q ${image}; then
+    echo "Image ${image} already exists. Skipping pull."
+  else
+    echo "Image ${image} not found. Pulling from ${source}..."
+    case ${source} in
+      docker)
+        ctr -a ${CONTAINERD_PATH} image pull docker.io/${image} || return 1
+        ;;
+      local)
+        ctr -a ${CONTAINERD_PATH} images import ${image} || return 1
+        ;;
+      *)
+        echo "Invalid image source. Please specify 'docker' or 'local'."
+        return 1
+    esac
+  fi
+
+  echo "Creating container ${name}..."
+  ctr -a ${CONTAINERD_PATH} container create ${image} ${name} || return 1
+
+  if [[ $detach == true ]]; then
+    echo "Starting container ${name} in detached mode..."
+    ctr -a ${CONTAINERD_PATH} task start -d ${name} || return 1
+  else
+    echo "Starting container ${name}..."
+    ctr -a ${CONTAINERD_PATH} task start ${name} || return 1
+
+    if [[ $exec == true ]]; then
+      echo "Connecting to container ${name}..."
+      ctr -a ${CONTAINERD_PATH} task exec -t ${name} ${command} || return 1
+    fi
+  fi
+
+  echo "Container ${name} started."
+}
+
+# Function to execute a command in a running container
+function exec_container() {
+  local container_name=$1
+  local command=$2
+
+  echo "Executing command '${command}' in container ${container_name}..."
+  ctr -a ${CONTAINERD_PATH} task exec -t ${container_name} ${command} || return 1
+}
+
+function stop_container() {
+  local name=$1
+  echo "Stopping container ${name}..."
+  ctr -a ${CONTAINERD_PATH} task kill ${name} || return 1
+  echo "Container ${name} stopped."
+}
+
+function remove_container() {
+  local name=$1
+  echo "Removing container ${name}..."
+  ctr -a ${CONTAINERD_PATH} container rm ${name} || return 1
+  echo "Container ${name} removed."
+}
+
+function pull_image() {
+  local source=$1
+  local image=$2
+  
+  case $source in
+    docker)
+      echo "Pulling image ${image} from Docker hub..."
+      ctr -n ${NAMESPACE} image pull docker.io/${image} || return 1
+      ;;
+    local)
+      echo "Importing image from local tar file..."
+      ctr -n ${NAMESPACE} images import ${image} || return 1
+      ;;
+    *)
+      echo "Invalid image source. Please specify 'docker' or 'local'."
+      return 1
+  esac
+}
+
+function create_network() {
+  local name=$1
+  echo "Creating network ${name}..."
+  ctr -a ${CONTAINERD_PATH} network create ${name} || return 1
+  echo "Network ${name} created."
+}
+
+function delete_network() {
+  local name=$1
+  echo "Deleting network ${name}..."
+  ctr -a ${CONTAINERD_PATH} network remove ${name} || return 1
+  echo "Network ${name} deleted."
+}
+
+# Function to attach a container to a network
+function attach_network() {
+  local name=$1
+  local network=$2
+  echo "Attaching container ${name} to network ${network}..."
+  ctr -a ${CONTAINERD_PATH} task exec --net-host ${name} /bin/sh || return 1
+  echo "Container ${name} attached to network ${network}."
+}
+
+function file_logs() {
+  local name=$1
+  local source=$2
+  case $source in
+    docker)
+      echo "Displaying Docker logs for container ${name}..."
+      docker logs ${name} || return 1
+      ;;
+    local)
+      echo "Displaying local logs for container ${name}..."
+      cat /var/log/containers/${name}*.log || return 1
+      ;;
+    *)
+      echo "Invalid log source. Please specify 'docker' or 'local'."
+      return 1
+  esac
+}
+
+function logs() {
+  local name=$1
+  local logDir="/var/log/containers"
+  local logFile="${logDir}/${name}.log"
+
+  echo "Displaying logs for container ${name}..."
+
+  # Create the log directory if it doesn't exist
+  mkdir -p "${logDir}"
+
+  ctr -a ${CONTAINERD_PATH} task logs ${name} > "${logFile}" 2>&1 || return 1
+  cat "${logFile}" || return 1
+}
+
+function logs() {
+  local name=$1
+  local logDir="/var/log/containers"
+  local logFile="${logDir}/${name}.log"
+  local live=false
+
+  # Check if the --live flag is provided
+  if [[ $2 == "--live" ]]; then
+    live=true
+  fi
+
+  echo "Displaying logs for container ${name}..."
+
+  # Create the log directory if it doesn't exist
+  mkdir -p "${logDir}"
+
+  ctr -a ${CONTAINERD_PATH} task logs ${name} > "${logFile}" 2>&1 || return 1
+  cat "${logFile}" || return 1
+
+  
+  if [[ $live == true ]]; then
+    echo "Displaying live logs for container ${name}..."
+    tail -f "${logFile}"
+  else
+    cat "${logFile}" || return 1
+  fi
+}
+
+if [[ -z "$1" ]]; then
+  show_help
+  exit 1
+fi
+
+COMMAND="$1"
+shift
+
+case "${COMMAND}" in
+  list)
+    list_containers $1
+    ;;
+  run)
+    run_container $1 $2 $3 $4 $5 $6
+    ;;
+  exec)
+    exec_container $1 $2
+    ;;
+  stop)
+    stop_container $1
+    ;;
+  rm)
+    remove_container $1
+    ;;
+  pull)
+    pull_image $1 $2
+    ;;
+  logs)
+    logs $1 $2
+    ;;
+  network)
+    if [[ "$1" == "create" ]]; then
+      create_network $2
+    elif [[ "$1" == "delete" ]]; then
+      delete_network $2
+    else
+      echo "Unknown network command: $1"
+      show_help
+      exit 1
+    fi
+    ;;
+  attach)
+    attach_network $1 $2
+    ;;
+  help)
+    show_help
+    ;;
+  *)
+    echo "Unknown command: ${COMMAND}"
+    show_help
+    exit 1
+esac
