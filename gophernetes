@@ -132,7 +132,7 @@ function run_container() {
         echo "Image ${image} not found. Pulling from ${source}..."
         case ${source} in
             docker)
-                ctr -a ${CONTAINERD_PATH} image pull docker.io/${image} || return 1
+                ctr -a ${CONTAINERD_PATH} image pull ${image} || return 1
             ;;
             local)
                 ctr -a ${CONTAINERD_PATH} images import ${image} || return 1
@@ -152,6 +152,7 @@ function run_container() {
     else
         echo "Starting container ${name}..."
         ctr -a ${CONTAINERD_PATH} task start ${name} || return 1
+        ctr -a ${CONTAINERD_PATH} task attach ${name} || return 1
         
         if [[ $exec == true ]]; then
             echo "Connecting to container ${name}..."
@@ -171,11 +172,18 @@ function exec_container() {
     ctr -a ${CONTAINERD_PATH} task exec -t ${container_name} ${command} || return 1
 }
 
-function stop_container() {
+function pause_container() {
     local name=$1
-    echo "Stopping container ${name}..."
-    ctr -a ${CONTAINERD_PATH} task kill ${name} || return 1
-    echo "Container ${name} stopped."
+    echo "Pausing container ${name}..."
+    ctr -a ${CONTAINERD_PATH} task pause ${name} || return 1
+    echo "Container ${name} paused."
+}
+
+function resume_container() {
+    local name=$1
+    echo "Resuming container ${name}..."
+    ctr -a ${CONTAINERD_PATH} task resume ${name} || return 1
+    echo "Container ${name} resumed."
 }
 
 function remove_container() {
@@ -192,7 +200,7 @@ function pull_image() {
     case $source in
         docker)
             echo "Pulling image ${image} from Docker hub..."
-            ctr -n ${NAMESPACE} image pull docker.io/${image} || return 1
+            ctr -n ${NAMESPACE} image pull ${image} || return 1
         ;;
         local)
             echo "Importing image from local tar file..."
