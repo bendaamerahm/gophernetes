@@ -249,20 +249,6 @@ function logs() {
     local name=$1
     local logDir="/var/log/containers"
     local logFile="${logDir}/${name}.log"
-    
-    echo "Displaying logs for container ${name}..."
-    
-    # Create the log directory if it doesn't exist
-    mkdir -p "${logDir}"
-    
-    ctr -a ${CONTAINERD_PATH} task logs ${name} > "${logFile}" 2>&1 || return 1
-    cat "${logFile}" || return 1
-}
-
-function logs() {
-    local name=$1
-    local logDir="/var/log/containers"
-    local logFile="${logDir}/${name}.log"
     local live=false
     
     # Check if the --live flag is provided
