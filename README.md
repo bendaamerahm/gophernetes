@@ -53,7 +53,8 @@ Gophernetes is a simple bash script for managing containers using `containerd` a
 ## Commands using the spript bash
 
 - `run <source> <image> <name>`: Pull an image from a source and run a container with the given name.
-- `stop <name>`: Stop a running container.
+- `pause <name>`: Pause a running container.
+- `resume <name>`: Resume a running container.
 - `rm <name>`: Remove a container.
 - `logs <name> [--live]`: Fetch and display logs of a container. Use the `--live` flag to display live logs.
 - `exec <name> <command>`: Execute a command in a running container.
