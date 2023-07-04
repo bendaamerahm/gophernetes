@@ -10,7 +10,7 @@ Gophernetes is a minimal, educational container runtime written in Go. It is des
 - **Control Groups**: Gophernetes limits the memory usage of the container through cgroups.
 - **Networking**: Gophernetes sets up a basic virtual ethernet networking stack inside the container using a separate network namespace.
 
-## Usage
+## Usage Of go App
 
 First, build the Go application:
 
@@ -39,6 +39,72 @@ You can then run Gophernetes inside a Docker container. However, due to the natu
 
 ```
 docker run --privileged -it gophernetes run /bin/bash
+```
+
+# Script Gophernetes
+
+Gophernetes is a simple bash script for managing containers using `containerd` as the container runtime.
+
+## Usage of spript bash
+
+```
+ ./gophernetes COMMAND [OPTIONS]
+```
+## Commands using the spript bash
+
+- `run <source> <image> <name>`: Pull an image from a source and run a container with the given name.
+- `pause <name>`: Pause a running container.
+- `resume <name>`: Resume a running container.
+- `rm <name>`: Remove a container.
+- `logs <name> [--live]`: Fetch and display logs of a container. Use the `--live` flag to display live logs.
+- `exec <name> <command>`: Execute a command in a running container.
+- `pull <source> <image>`: Pull an image from a source.
+- `list [--all|--images]`: List all containers. Use the `--all` option to list all containers, or `--images` to list image containers.
+- `network create <name>`: Create a network.
+- `network delete <name>`: Delete a network.
+- `attach <name> <network>`: Attach a container to a network.
+- `help`: Show help menu.
+
+## Examples
+
+```bash
+# Run a container from Docker Hub
+./gophernetes run docker alpine alpine-container
+
+# Run a container from a local tar file
+./gophernetes run local my_image.tar my-container
+
+# Stop a container
+./gophernetes stop my-container
+
+# Remove a container
+./gophernetes rm my-container
+
+# Fetch and display logs of a container
+./gophernetes logs my-container
+
+# Execute a command in a running container
+./gophernetes exec my-container "ls -l"
+
+# Pull an image from Docker Hub
+./gophernetes pull docker alpine
+
+# List all containers
+./gophernetes list
+
+# Create a network
+./gophernetes network create my-network
+
+# Delete a network
+./gophernetes network delete my-network
+
+# Attach a container to a network
+./gophernetes attach my-container my-network
+
+# Show help menu
+./gophernetes help
+Requirements
+containerd runtime with the appropriate socket path configured.
 ```
 
 ## Warning
